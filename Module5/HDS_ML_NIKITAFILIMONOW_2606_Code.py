@@ -23,6 +23,7 @@ from sklearn.model_selection import (
     StratifiedKFold,
     learning_curve
 )
+from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 from sklearn.linear_model import LogisticRegression
 from sklearn.tree import DecisionTreeClassifier, plot_tree
@@ -32,7 +33,9 @@ from sklearn.metrics import (
     confusion_matrix,
     ConfusionMatrixDisplay, 
     RocCurveDisplay,
-    recall_score
+    recall_score,
+    f1_score,
+    accuracy_score
 )
 from statsmodels.stats.contingency_tables import mcnemar
 import warnings
@@ -64,7 +67,7 @@ data = load_breast_cancer()
 # 3.2 Converting to pandas DataFrame for easier manipulation 
 df = pd.DataFrame(data.data, columns=data.feature_names)
 
-# 3.3 Adding target column - 0 = malignant, 1 = bening 
+# 3.3 Adding target column - 0 = malignant, 1 = benign 
 df['target'] = data.target
 
 # =========================================================
@@ -77,7 +80,9 @@ print("Dataset Overview")
 print("=" *50)
 print(f"Shape : {df.shape}")
 print(f"Missing values: {df.isnull().sum().sum()}")
+print(f"Duplicates: {df.duplicated().sum()}")
 print(f"Dtypes : {df.dtypes.value_counts().to_dict()}")
+print(f"Feature range: min={df[list(data.feature_names)].min().min():.3f}, max={df[list(data.feature_names)].max().max():.3f}")
 print(f"\nClass distribution:")
 print(f"  Malignant (0): {(df['target']==0).sum()} ({(df['target']==0).mean():.1%})")
 print(f"  Benign    (1): {(df['target']==1).sum()} ({(df['target']==1).mean():.1%})")
@@ -99,7 +104,7 @@ plt.close()
 
 # 4.3 Creating and visualising colleration heatmap to inform future selection rationale 
 fig, ax = plt.subplots(figsize=(14, 12))
-corr = df[list(data.feature_names)].corr()
+corr = df.drop(columns='target').corr() 
 mask = np.triu(np.ones_like(corr, dtype=bool))
 sns.heatmap(corr, mask=mask, cmap='coolwarm', center=0,
             annot=False, ax=ax, linewidths=0.2)
@@ -138,7 +143,7 @@ X = df[list(data.feature_names)].values
 y = df['target'].values
 
 # 5.2 Spliting data into train and test sets
-x_train, x_test, y_train, y_test = train_test_split(
+X_train, X_test, y_train, y_test = train_test_split(
  X, y,
  test_size=TEST_SIZE,
  random_state=RANDOM_STATE,
@@ -149,9 +154,9 @@ x_train, x_test, y_train, y_test = train_test_split(
 print("=" * 50)
 print("DATA PREPROCESSING")
 print("=" * 50)
-print(f"Training set  : {x_train.shape[0]} samples")
-print(f"Test set      : {x_test.shape[0]} samples")
-print(f"Features      : {x_train.shape[1]}")
+print(f"Training set  : {X_train.shape[0]} samples")
+print(f"Test set      : {X_test.shape[0]} samples")
+print(f"Features      : {X_train.shape[1]}")
 print(f"\nClass ratio in training set:")
 print(f"  Malignant (0): {(y_train==0).sum()} ({(y_train==0).mean():.1%})")
 print(f"  Benign    (1): {(y_train==1).sum()} ({(y_train==1).mean():.1%})")
@@ -164,13 +169,13 @@ print(f"  Benign    (1): {(y_test==1).sum()} ({(y_test==1).mean():.1%})")
 # as features in the dataset range significantly 
 # Preventing data leakage by applying scaler on training data only
 scaler = StandardScaler()
-X_train_scaled = scaler.fit_transform(x_train)
-X_test_scaled = scaler.transform(x_test)
+X_train_scaled = scaler.fit_transform(X_train)
+X_test_scaled = scaler.transform(X_test)
 
 
 # 5.5 Printing the results
 print(f"\nScaling applied: StandardScaler")
-print(f"  Mean before scaling : {x_train.mean():.3f}")
+print(f"  Mean before scaling : {X_train.mean():.3f}")
 print(f"  Mean after scaling  : {X_train_scaled.mean():.3f}")
 print(f"  Std after scaling   : {X_train_scaled.std():.3f}")
 
@@ -192,9 +197,9 @@ print(f"  Strategy  : class_weight='balanced' applied in model definitions")
 
 # 6.1 Defining hyperparameter grid
 param_grid_lr = {
-    'C': [0.001, 0.01, 0.1, 1, 10, 100],
-    'penalty': ['l1', 'l2'],
-    'solver': ['liblinear']
+    'clf__C': [0.001, 0.01, 0.1, 1, 10, 100],
+    'clf__penalty': ['l1', 'l2'],
+    'clf__solver': ['liblinear']
 }
 
 # 6.2 Establishing cross-validation strategy 
@@ -206,32 +211,40 @@ random_state=RANDOM_STATE
 
 # 6.3 Conducting training with GridSearchCV and 
 # identifying the best performing model 
+lr_pipe = Pipeline([
+    ('scaler', StandardScaler()),
+    ('clf', LogisticRegression(
+        class_weight='balanced',
+        max_iter=1000,
+        random_state=RANDOM_STATE
+    ))
+])
+
 lr_grid = GridSearchCV(
-LogisticRegression(
-    class_weight='balanced',
-    max_iter=1000,
-    random_state=RANDOM_STATE
-),
+lr_pipe,
 param_grid=param_grid_lr,
 cv=cv,
 scoring='roc_auc',
 n_jobs=1
 )
 
-lr_grid.fit(X_train_scaled, y_train)
+lr_grid.fit(X_train, y_train)
 lr_best = lr_grid.best_estimator_
 
 # 6.4 Evaluating the best performing model on test set
-y_pred_lr = lr_best.predict(X_test_scaled)
-y_prob_lr = lr_best.predict_proba(X_test_scaled)[:, 1]
+y_pred_lr = lr_best.predict(X_test)
+y_prob_lr = lr_best.predict_proba(X_test)[:, 1]
 
 # 6.5 Checking cross-validation stability 
 cv_scores_lr = cross_val_score(
-lr_best, X_train_scaled, y_train,
+lr_best, X_train, y_train,
 cv=cv, scoring='roc_auc'
 )
 
 # 6.6 Printing the results
+print("=" * 50)
+print("MODEL 1 - LOGISTIC REGRESSION")
+print("=" * 50)
 print(f"Best parameters : {lr_grid.best_params_}")
 print(f"CV AUC-ROC      : {cv_scores_lr.mean():.3f} ± {cv_scores_lr.std():.3f}")
 print(classification_report(y_test, y_pred_lr,
@@ -259,20 +272,20 @@ dt_grid = GridSearchCV(
     param_grid=param_grid_dt,
     cv=cv,
     scoring='roc_auc',
-    n_jobs=-1
+    n_jobs=1
 )
 
-dt_grid.fit(x_train, y_train)
+dt_grid.fit(X_train, y_train)
 dt_best = dt_grid.best_estimator_
 
 # 7.3 Evaluating best performing model on test test 
-y_pred_dt = dt_best.predict(x_test)
-y_prob_dt = dt_best.predict_proba(x_test)[:, 1]
+y_pred_dt = dt_best.predict(X_test)
+y_prob_dt = dt_best.predict_proba(X_test)[:, 1]
 
-# 7.4 Defining hyperparameter grid
+# 7.4 Checking cross-validation stability 
 cv_scores_dt = cross_val_score(
     dt_best,
-    x_train,
+    X_train,
     y_train,
     cv=cv,
     scoring='roc_auc'
@@ -293,15 +306,20 @@ print(f"AUC-ROC         : {roc_auc_score(y_test, y_prob_dt):.3f}")
 # =========================================================
 
 # 8.1 Comparing models performance by plotting ROC curves 
+# Defining malignant as the positive class for clinical framing
+y_test_malignant = (y_test == 0).astype(int)
+y_prob_lr_mal = lr_best.predict_proba(X_test)[:, 0]
+y_prob_dt_mal = dt_best.predict_proba(X_test)[:, 0]
+
 fig, ax = plt.subplots(figsize=(8, 6))
 RocCurveDisplay.from_predictions(
-    y_test, y_prob_lr,
-    name=f"Logistic Regression (AUC={roc_auc_score(y_test, y_prob_lr):.3f})",
+    y_test_malignant, y_prob_lr_mal,
+    name="Logistic Regression - Test",
     ax=ax, color='#3266ad'
 )
 RocCurveDisplay.from_predictions(
-    y_test, y_prob_dt,
-    name=f"Decision Tree (AUC={roc_auc_score(y_test, y_prob_dt):.3f})",
+    y_test_malignant, y_prob_dt_mal,
+    name="Decision Tree - Test",
     ax=ax, color='#E24B4A'
 )
 ax.plot([0, 1], [0, 1], 'k--', linewidth=0.8, label='Random classifier')
@@ -340,20 +358,28 @@ plt.savefig(f'{FIGURES_DIR}/feature_importance_dt.png', dpi=150, bbox_inches='ti
 plt.close()
 
 # 8.4 Identifying feature coefficients for logistic regression
-pd.Series(abs(lr_best.coef_[0]), index=data.feature_names)\
-  .sort_values(ascending=True).tail(15)\
-  .plot(kind='barh', figsize=(8, 6), color='#3266ad', edgecolor='white',
-        title='Feature Coefficients — Logistic Regression (Top 15, absolute)')
-plt.xlabel('|Coefficient|')
+# Showing top 15 by magnitude, plotted with sign to show direction of influence
+coefs = pd.Series(lr_best.named_steps['clf'].coef_[0], index=data.feature_names)
+top15 = coefs.reindex(coefs.abs().sort_values(ascending=False).index[:15]).sort_values()
+colors = ['#E24B4A' if c < 0 else '#3266ad' for c in top15.values]
+top15.plot(kind='barh', figsize=(8, 6), color=colors, edgecolor='white',
+           title='Feature Coefficients — Logistic Regression (Top 15 by magnitude)')
+plt.xlabel('Coefficient')
+plt.axvline(0, color='black', linewidth=0.8)
 plt.tight_layout()
 plt.savefig(f'{FIGURES_DIR}/feature_importance_lr.png', dpi=150, bbox_inches='tight')
 plt.close()
 
 # 8.5 Analyzing sensitivity threshold
+y_prob_malignant = lr_best.predict_proba(X_test)[:, 0]
 threshold_results = []
 for t in [0.3, 0.4, 0.5, 0.6, 0.7]:
-    y_pred_t = (y_prob_lr >= t).astype(int)
-    tn, fp, fn, tp = confusion_matrix(y_test, y_pred_t).ravel()
+    # Appliying threshold to P(malignant), lower t flags more cases as malignant,
+    # increasing sensitivity at the cost of specificity 
+    y_pred_t = np.where(y_prob_malignant >= t, 0, 1)
+    # labels=[0,1] maps: [[TP, FN], [FP, TN]] with Malignant as positive class
+    cm_t = confusion_matrix(y_test, y_pred_t, labels=[0, 1])
+    tp, fn, fp, tn = cm_t[0,0], cm_t[0,1], cm_t[1,0], cm_t[1,1]
     threshold_results.append({
         'Threshold':        t,
         'Sensitivity':      round(tp / (tp + fn), 3),
@@ -389,6 +415,10 @@ pd.DataFrame({
                         round(recall_score(y_test, y_pred_dt, pos_label=0), 3)],
     'Specificity':     [round(recall_score(y_test, y_pred_lr, pos_label=1), 3),
                         round(recall_score(y_test, y_pred_dt, pos_label=1), 3)],
+    'F1_malignant':     [round(f1_score(y_test, y_pred_lr, pos_label=0), 3),
+                        round(f1_score(y_test, y_pred_dt, pos_label=0), 3)],
+    'Accuracy':     [round(accuracy_score(y_test, y_pred_lr), 3),
+                        round(accuracy_score(y_test, y_pred_dt), 3)],
 }).to_csv(f'{RESULTS_DIR}/model_metrics.csv', index=False)
 
 # 8.8 Printing the results
@@ -397,7 +427,7 @@ print("PRINTING THE RESULTS OF SECTION 8")
 print("=" * 50)
 
 metrics = pd.read_csv(f'{RESULTS_DIR}/model_metrics.csv')
-print("\nMODEL PERFORMANCE ON TEST SET (n=114)")
+print(f"\nMODEL PERFORMANCE ON TEST SET (n={len(y_test)})")
 print(metrics.to_string(index=False))
 
 print("\nSENSITIVITY THRESHOLD ANALYSIS — Logistic Regression")
@@ -426,34 +456,35 @@ print("=" * 50)
 # =========================================================
 
 # 9.1 Creating decision tree diagram
-fig, ax = plt.subplots(figsize=(20, 10))
+fig, ax = plt.subplots(figsize=(26, 14))
 plot_tree(
     dt_best,
     feature_names=list(data.feature_names),
     class_names=['Malignant', 'Benign'],
     filled=True,
     rounded=True,
-    fontsize=10,
+    fontsize=13,
+    proportion=True,
     ax=ax
 )
-ax.set_title(f'Decision Tree Structure — max_depth={dt_best.max_depth}', fontsize=14)
+ax.set_title(f'Decision Tree Structure — max_depth={dt_best.max_depth}', fontsize=16)
 plt.tight_layout()
-plt.savefig(f'{FIGURES_DIR}/decision_tree.png', dpi=150, bbox_inches='tight')
+plt.savefig(f'{FIGURES_DIR}/decision_tree.png', dpi=200, bbox_inches='tight')
 plt.close()
 
 # 9.2 Plotting learning curves
 fig, axes = plt.subplots(1, 2, figsize=(14, 5))
 
 for ax, model, X_tr, name, color in [
-    (axes[0], lr_best, X_train_scaled, 'Logistic Regression', '#3266ad'),
-    (axes[1], dt_best, x_train,        'Decision Tree',       '#E24B4A')
+    (axes[0], lr_best, X_train, 'Logistic Regression', '#3266ad'),
+    (axes[1], dt_best, X_train,        'Decision Tree',       '#E24B4A')
 ]:
     train_sizes, train_scores, val_scores = learning_curve(
         model, X_tr, y_train,
         cv=cv,
         scoring='roc_auc',
         train_sizes=np.linspace(0.1, 1.0, 10),
-        n_jobs=-1
+        n_jobs=1
     )
     train_mean = train_scores.mean(axis=1)
     train_std  = train_scores.std(axis=1)
