@@ -1,0 +1,534 @@
+---
+title: "Alcohol intake and cardiovascular disease incidence: An analysis of the Framingham Heart Study dataset"
+author: "Nikita Filimonow, nf434@cam.ac.uk" 
+word_count: 1998
+tables: 2
+figures: 2
+date: "`r Sys.Date()`" 
+output:
+  pdf_document:
+    latex_engine: xelatex
+---
+
+```{r initial-setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message=FALSE, dev = "pdf")
+
+# Designating, installing and loading all required packages for our analysis
+pkgs <- c("survival", "splines", "ggplot2", "dplyr")
+missing_pkgs <- setdiff(pkgs, rownames(installed.packages()))
+if (length(missing_pkgs) > 0) install.packages(missing_pkgs, repos = "https://cloud.r-project.org")
+invisible(lapply(pkgs, library, character.only = TRUE))
+
+# Importing dataset from working directory
+framingham <- read.csv("framingham_heart_study.csv")
+
+```
+
+# Abstract 
+
+**Background:** Despite extensive research, the association between alcohol intake and cardiovascular disease remains inconclusive.  
+
+**Objective:** To assess associations between alcohol intake and the incidence of total cardiovascular disease and its subtypes, including the dose-response relationship, the explanatory role of systolic blood pressure and effect modification by sex. 
+
+**Methods:** Cox proportional hazards regression was applied to 4,215 study participants. Multiple linear regression, restricted cubic splines, systolic blood pressure adjustment and sex interaction analysis were used to address secondary objectives.   
+
+**Results:** Each additional seven drinks per week was associated with a lower hazard of total CVD (HR 0.94, 95% CI 0.90-0.98) and MI/fatal CHD (HR 0.94, 95% CI 0.89-0.99), but not stroke (HR 0.99, 95% CI 0.92-1.07). Systolic blood pressure did not appear to explain the association. No significant non-linearity or sex interaction was identified. 
+
+**Conclusions:** An inverse association was identified, but it should not be interpreted as causal due to potential confounding and simulated alcohol exposure.       
+
+**Keywords:** Cardiovascular disease, alcohol consumption, Cox proportional hazards regression, dose-response relationship, systolic blood pressure, effect modification     
+
+---
+
+# Introduction 
+
+The association between alcohol intake and cardiovascular diseases is a question of great societal importance. According to the World Health Organization (WHO, 2025), cardiovascular diseases (CVD) remain the leading cause of death worldwide, with an estimated 19.8 million deaths in 2022. While WHO states that most of these diseases could be prevented by addressing behavioural risk factors such as harmful alcohol use, evidence on alcohol and CVD remains inconclusive. A recent review of meta-analyses of cohort studies suggests the existence of a J-shaped relationship between alcohol intake and ischaemic heart disease, but the Mendelian randomisation (MR) evidence is not sufficient to rule it out (Carr et al., 2026). As reported by van de Luitgaarden et al. (2022), only 5 of the 24 MR studies reviewed assessed non-linearity, so the shape of this relationship was not sufficiently tested.    
+
+The NHLBI Framingham Heart Study teaching dataset allows us to examine baseline alcohol intake and incident cardiovascular disease (total and subtypes) over up to 24 years of follow-up. The scientific statement of the American Heart Association (Piano et al., 2025) highlights a possible dose-response relationship, identifies blood pressure as a potential mediator and suggests that the association may vary by sex. 
+
+Given the cardiovascular disease burden and conflicting evidence on alcohol, the primary aim of this study is to evaluate the association between habitual alcohol intake and the incidence of total cardiovascular disease and its subtypes. The secondary aims are to further characterise this association by evaluating the existence and shape of the dose-response relationship between habitual alcohol intake and the incidence of total cardiovascular disease, to examine systolic blood pressure as a potential mediator that could explain this association, and to test sex as a potential effect modifier.
+
+---
+
+# Methods 
+
+## Data, study population, exposure and outcomes
+The NHLBI Framingham Heart Study teaching dataset consists of 11,627 rows and 40 variables covering 4,434 participants. The dataset includes all participants at baseline, while 3,930 were included at exam 2 and 3,263 at exam 3. We excluded 219 participants with prevalent coronary heart disease (CHD) or stroke. Thus, the study population includes 4,215 participants free of CHD and stroke at baseline. The exposure variable (ALC_DPW) was simulated to represent alcohol intake in standard drinks per week. The outcomes are total cardiovascular disease and its subtypes: hospitalised myocardial infarction (MI) or fatal CHD, and stroke, as alcohol may affect them differently (Wood et al., 2018). Time is measured in days from baseline to the first event with censoring at the end of follow-up, last contact or death without an event.  
+
+```{r cohort-selection, include=FALSE}
+# Selecting the study population by excluding participants with prevalent CHD or stroke
+
+framingham_baseline <- framingham %>%
+  filter(PERIOD == 1)
+
+framingham_analysis <- framingham_baseline %>%
+  filter(PREVCHD == 0 & PREVSTRK == 0)
+
+# Confirming the appropriate study selection population and exclusion criteria 
+
+nrow(framingham_baseline)
+nrow(framingham_baseline) - nrow(framingham_analysis)
+nrow(framingham_analysis)
+
+```
+
+## Statistical analysis 
+
+**Primary analysis:**
+We used Cox proportional hazards regression for the primary analysis. As indicated by Bradburn et al. (2003), this method has been widely used in medical research for analysing survival time data. It fits our primary aim, as we are interested in time to a first event with censoring. 
+
+Alcohol intake (ALC_DPW) was entered in the model as a number of drinks per week. The hazard ratios reflect the change in hazard for each additional 7 drinks per week with 95% confidence intervals. We adjusted for age, sex, current smoking status and diabetes given their association with both the disease and drinking habits. All 4,215 participants had complete covariate data. Systolic blood pressure was not included since it is examined as a potential mediator in our secondary analysis. The proportional hazards assumption was checked using scaled Schoenfeld residuals. The same model was applied to both subtypes.  
+
+
+**Secondary analysis:**
+The primary Cox model with the same covariates was used to assess whether there is a dose-response relationship between alcohol intake and cardiovascular disease risk. Based on prior evidence (Carr et al., 2026), we expected a non-linear relationship, so we applied restricted cubic splines (RCS) to estimate its shape. Three knots were placed at the 10th, 50th and 90th percentiles of alcohol intake to limit model complexity and allow for non-linearity. A likelihood ratio test was used to compare the spline model with the linear Cox regression model. 
+
+Our decision to examine systolic blood pressure as a potential mediator of the alcohol-CVD association is justified by the evidence reflected in the scientific statement of the American Heart Association (Piano et al., 2025). We have applied a multiple linear regression model to evaluate the association between alcohol intake and systolic blood pressure, adjusting for age, sex, current smoking status and diabetes. The Cox proportional hazards model included systolic blood pressure (SBP) to assess its explanatory role by comparing alcohol coefficients with and without SBP.
+
+Sex was selected as a potential effect modifier (Piano et al., 2025), and the Cox model included a sex-alcohol interaction term. A Wald test was used to evaluate the statistical significance of the sex-alcohol intake interaction. We have performed sex-stratified Cox regression analyses adjusted for age, current smoking status and diabetes to estimate how the association differs among men and women.  
+
+Analyses were performed in R version 4.5.1 (R Core Team, 2025).
+
+---
+
+# Results 
+
+## Baseline Characteristics  
+
+```{r creating-table, echo=FALSE}
+# Creating table of baseline characteristics for study population  
+
+table1 <- data.frame(
+  Variable = c(
+    "Participants",
+    "Age (years), mean (SD)",
+    "Women, n (%)",
+    "Alcohol intake (drinks/week), median (IQR)",
+    "Current smokers, n (%)",
+    "Diabetes, n (%)",
+    "Systolic blood pressure (mmHg), mean (SD)",
+    "BMI (kg/m²), mean (SD)"
+  ),
+  Value = c(
+    nrow(framingham_analysis),
+    sprintf("%.1f (%.1f)", mean(framingham_analysis$AGE),
+            sd(framingham_analysis$AGE)),
+    sprintf("%d (%.1f%%)", sum(framingham_analysis$SEX == 2),
+            mean(framingham_analysis$SEX == 2) * 100),
+    sprintf("%.1f (%.1f-%.1f)",
+            median(framingham_analysis$ALC_DPW),
+            quantile(framingham_analysis$ALC_DPW, 0.25),
+            quantile(framingham_analysis$ALC_DPW, 0.75)),
+    sprintf("%d (%.1f%%)", sum(framingham_analysis$CURSMOKE == 1),
+            mean(framingham_analysis$CURSMOKE == 1) * 100),
+    sprintf("%d (%.1f%%)", sum(framingham_analysis$DIABETES == 1),
+            mean(framingham_analysis$DIABETES == 1) * 100),
+    sprintf("%.1f (%.1f)", mean(framingham_analysis$SYSBP, na.rm = TRUE),
+            sd(framingham_analysis$SYSBP, na.rm = TRUE)),
+    sprintf("%.1f (%.1f)", mean(framingham_analysis$BMI, na.rm = TRUE),
+            sd(framingham_analysis$BMI, na.rm = TRUE))
+  )
+)
+
+knitr::kable(
+  table1,
+  caption = "Baseline Characteristics of the Study Population",
+  align = c("l", "l")
+)
+```
+
+Table 1 summarises baseline demographic and clinical characteristics relevant to the primary and secondary analyses. The mean age was 49.5 years and women represented 57.1% of participants. Median alcohol intake was 6.3 drinks per week and 49.5% of the participants were current smokers.    
+
+## Primary analysis 
+
+### Association between habitual alcohol intake and the incidence of cardiovascular diseases 
+
+```{r fitting-the-model, include=FALSE}
+# Fitting the Cox proportional hazards model for total CVD  
+cox_cvd <- coxph(
+  Surv(TIMECVD, CVD) ~ ALC_DPW + AGE + SEX +
+    CURSMOKE + DIABETES,
+  data = framingham_analysis
+)
+
+summary(cox_cvd)
+```
+
+```{r calculating-HR, include=FALSE}
+# Calculating the hazard ratio and 95% confidence interval per 7 drinks per week for total CVD
+beta <- coef(cox_cvd)["ALC_DPW"]
+se <- sqrt(vcov(cox_cvd)["ALC_DPW", "ALC_DPW"])
+
+HR_7 <- exp(beta * 7)
+CI_lower <- exp((beta - 1.96 * se) * 7)
+CI_upper <- exp((beta + 1.96 * se) * 7)
+
+round(c(HR = HR_7, CI_lower = CI_lower, CI_upper = CI_upper), 3)
+```
+
+```{r fitting-the-model-2, include=FALSE}
+# Fitting Cox regression models for MI, fatal CHD and stroke 
+cox_mifc <- coxph(
+  Surv(TIMEMIFC, MI_FCHD) ~ ALC_DPW + AGE + SEX +
+    CURSMOKE + DIABETES,
+  data = framingham_analysis
+)
+
+cox_stroke <- coxph(
+  Surv(TIMESTRK, STROKE) ~ ALC_DPW + AGE + SEX +
+    CURSMOKE + DIABETES,
+  data = framingham_analysis
+)
+
+summary(cox_mifc)
+summary(cox_stroke)
+```
+
+```{r calculating-HR-2, include=FALSE}
+# Calculating hazard ratios and 95% confidence interval for MI, fatal CHD and stroke 
+beta_mifc <- coef(cox_mifc)["ALC_DPW"]
+se_mifc <- sqrt(vcov(cox_mifc)["ALC_DPW", "ALC_DPW"])
+
+HR_mifc <- exp(beta_mifc * 7)
+CI_mifc_lower <- exp((beta_mifc - 1.96 * se_mifc) * 7)
+CI_mifc_upper <- exp((beta_mifc + 1.96 * se_mifc) * 7)
+
+beta_stroke <- coef(cox_stroke)["ALC_DPW"]
+se_stroke <- sqrt(vcov(cox_stroke)["ALC_DPW", "ALC_DPW"])
+
+HR_stroke <- exp(beta_stroke * 7)
+CI_stroke_lower <- exp((beta_stroke - 1.96 * se_stroke) * 7)
+CI_stroke_upper <- exp((beta_stroke + 1.96 * se_stroke) * 7)
+
+round(c(HR = HR_mifc, CI_lower = CI_mifc_lower,
+        CI_upper = CI_mifc_upper), 3)
+
+round(c(HR = HR_stroke, CI_lower = CI_stroke_lower,
+        CI_upper = CI_stroke_upper), 3)
+```
+
+```{r calculating-events, include=FALSE}
+# Calculating the number of events for each cardiovascular outcome 
+events_cvd <- sum(framingham_analysis$CVD == 1, na.rm = TRUE)
+
+events_mifc <- sum(framingham_analysis$MI_FCHD == 1, na.rm = TRUE)
+
+events_stroke <- sum(framingham_analysis$STROKE == 1, na.rm = TRUE)
+
+c(
+  Total_CVD = events_cvd,
+  MI_Fatal_CHD = events_mifc,
+  Stroke = events_stroke
+)
+```
+
+```{r checking-assumption, include=FALSE}
+# Checking the proportional hazards assumption for all our Cox models
+ph_cvd <- cox.zph(cox_cvd)
+ph_mifc <- cox.zph(cox_mifc)
+ph_stroke <- cox.zph(cox_stroke)
+
+print(ph_cvd)
+print(ph_mifc)
+print(ph_stroke)
+```
+
+```{r ph-sensitivity, include=FALSE}
+# Performing a sensitivity analysis of the MI/fatal CHD Cox model stratified by sex
+cox_mifc_strat <- coxph(
+  Surv(TIMEMIFC, MI_FCHD) ~ ALC_DPW + AGE + strata(SEX) + CURSMOKE + DIABETES,
+  data = framingham_analysis
+)
+exp(7 * c(coef(cox_mifc_strat)["ALC_DPW"], confint(cox_mifc_strat)["ALC_DPW", ]))
+```
+
+```{r creating-table2, echo=FALSE}
+# Creating table 2 with adjusted hazard ratios and 95% confidence intervals 
+table2 <- data.frame(
+  Outcome = c("Total CVD", "MI/fatal CHD", "Stroke"),
+  Events = c(events_cvd, events_mifc, events_stroke),
+  HR_95CI = c(
+    sprintf("%.2f (%.2f-%.2f)", HR_7, CI_lower, CI_upper),
+    sprintf("%.2f (%.2f-%.2f)", HR_mifc, CI_mifc_lower, CI_mifc_upper),
+    sprintf("%.2f (%.2f-%.2f)", HR_stroke, CI_stroke_lower, CI_stroke_upper)
+  ),
+  P_value = c(
+    summary(cox_cvd)$coefficients["ALC_DPW", "Pr(>|z|)"],
+    summary(cox_mifc)$coefficients["ALC_DPW", "Pr(>|z|)"],
+    summary(cox_stroke)$coefficients["ALC_DPW", "Pr(>|z|)"]
+  )
+)
+```
+
+```{r showing-table2, echo=FALSE}
+# Showing table 2 in the report 
+knitr::kable(
+  table2,
+  col.names = c("Outcome", "Events, n", "Adjusted HR (95% CI)", "p-value"),
+  digits = 3,
+  caption = "Alcohol Intake and Incident Cardiovascular Disease",
+  align = c("l", "c", "c", "c")
+)
+```
+
+Table 2 presents the results of the primary analysis. Each additional seven drinks per week was associated with a 6% lower hazard of total cardiovascular disease (HR 0.94, 95% CI 0.90-0.98; p = 0.006). A similar association was identified for MI/fatal CHD (HR 0.94, 95% CI 0.89-0.99; p = 0.025). In contrast, there was no statistically significant association for stroke (HR 0.99, 95% CI 0.92-1.07; p = 0.890).  
+
+We assessed the proportional hazards assumption using scaled Schoenfeld residuals. No evidence of global proportional hazards violations was identified for total CVD (p = 0.84), MI/fatal CHD (p = 0.135) or stroke (p = 0.76). Across all three models, there was no evidence of violation observed for alcohol consumption (p > 0.05). It is important to note, however, that the result for sex showed a statistically significant (p = 0.0099) violation of the proportional hazards assumption in the MI/fatal CHD model, but a sex-stratified model gave the same alcohol HR (0.94). 
+
+## Secondary analysis 
+
+### Dose-response relationship between alcohol intake and cardiovascular disease risk 
+
+```{r knots-position, include=FALSE}
+# Calculating the location of the knots for the RCS 
+alcohol_knots <- quantile(
+  framingham_analysis$ALC_DPW,
+  probs = c(0.10, 0.50, 0.90),
+  na.rm = TRUE
+)
+
+print(alcohol_knots)
+```
+
+```{r fitting-RCS, include=FALSE}
+# Fitting the RCS model for total CVD 
+cox_cvd_spline <- coxph(
+  Surv(TIMECVD, CVD) ~
+    ns(ALC_DPW, knots = alcohol_knots[2],
+       Boundary.knots = alcohol_knots[c(1, 3)]) +
+    AGE + SEX + CURSMOKE + DIABETES,
+  data = framingham_analysis
+)
+
+summary(cox_cvd_spline)
+```
+
+```{r testing-association, include=FALSE}
+# Testing the overall alcohol association and non-linearity 
+cox_cvd_no_alcohol <- coxph(
+  Surv(TIMECVD, CVD) ~ AGE + SEX + CURSMOKE + DIABETES,
+  data = framingham_analysis
+)
+
+anova(cox_cvd_no_alcohol, cox_cvd_spline, test = "LRT")
+
+anova(cox_cvd, cox_cvd_spline, test = "LRT")
+```
+
+```{r creating-curve, echo=FALSE}
+# Creating the dose-response curve with 95% confidence interval 
+alcohol_grid <- seq(0, 21.7, length.out = 200)
+
+newdata <- data.frame(
+  ALC_DPW = alcohol_grid,
+  AGE = mean(framingham_analysis$AGE),
+  SEX = 1,
+  CURSMOKE = 0,
+  DIABETES = 0
+)
+
+reference <- newdata[1, , drop = FALSE]
+
+X_grid <- model.matrix(
+  delete.response(terms(cox_cvd_spline)),
+  data = newdata
+)
+
+X_ref <- model.matrix(
+  delete.response(terms(cox_cvd_spline)),
+  data = reference
+)
+
+X_diff <- sweep(X_grid, 2, X_ref[1, ], "-")
+X_diff <- X_diff[, names(coef(cox_cvd_spline)), drop = FALSE]
+
+log_hr <- as.vector(X_diff %*% coef(cox_cvd_spline))
+
+se_log_hr <- sqrt(rowSums(
+  (X_diff %*% vcov(cox_cvd_spline)) * X_diff
+))
+
+spline_plot <- data.frame(
+  ALC_DPW = alcohol_grid,
+  HR = exp(log_hr),
+  Lower = exp(log_hr - 1.96 * se_log_hr),
+  Upper = exp(log_hr + 1.96 * se_log_hr)
+)
+
+ggplot(spline_plot, aes(x = ALC_DPW, y = HR)) +
+  geom_ribbon(aes(ymin = Lower, ymax = Upper),
+              fill = "steelblue", alpha = 0.2) +
+  geom_line(color = "steelblue", linewidth = 1) +
+  geom_hline(yintercept = 1, linetype = "dashed") +
+  labs(
+    title = "Figure 1. Alcohol Intake and Total CVD",
+    x = "Alcohol consumption (drinks/week)",
+    y = "Adjusted hazard ratio"
+  ) +
+  theme_minimal()
+```
+
+Figure 1 shows that the estimated hazard ratio decreased with increasing alcohol consumption. Restricted cubic spline analysis demonstrated a statistically significant inverse dose-response relationship between alcohol consumption and incident total CVD (p = 0.014). However, there was no evidence of non-linearity (p = 0.595), indicating that the association is consistent with a linear relationship up to 22 drinks/week without a J-shaped pattern.       
+
+### Systolic blood pressure as a potential mediator  
+
+```{r linear-regression, include=FALSE}
+# Applying linear regression to evaluate the association between alcohol consumption and SBP
+lm_sbp <- lm(
+  SYSBP ~ ALC_DPW + AGE + SEX + CURSMOKE + DIABETES,
+  data = framingham_analysis
+)
+
+summary(lm_sbp)
+confint(lm_sbp)["ALC_DPW", ]
+```
+
+```{r Cox-SBP, include=FALSE}
+# Fitting Cox regression adjusted for SBP
+cox_cvd_sbp <- coxph(
+  Surv(TIMECVD, CVD) ~ ALC_DPW + AGE + SEX +
+    CURSMOKE + DIABETES + SYSBP,
+  data = framingham_analysis
+)
+
+summary(cox_cvd_sbp)
+```
+
+```{r comparing-models, include=FALSE}
+# Comparing two Cox regression models and hazard ratios   
+hr_original <- exp(7 * coef(cox_cvd)["ALC_DPW"])
+hr_sbp <- exp(7 * coef(cox_cvd_sbp)["ALC_DPW"])
+
+data.frame(
+  Model = c("Original", "SBP-adjusted"),
+  HR = round(c(hr_original, hr_sbp), 3)
+)
+```
+
+Our choice of SBP as a potential suitable mediator was justified by prior evidence and expected biological response, as the association between high alcohol intake, elevated blood pressure and increased cardiovascular disease risk is known. However, our analysis found no statistically significant evidence that alcohol intake was associated with SBP ($\beta$ = 0.047, 95% CI −0.012 to 0.106, p = 0.117). Furthermore, we identified a positive association between SBP and CVD risk (HR = 1.020, 95% CI 1.017-1.023, p < 0.001). Adjustment for SBP did not weaken the inverse association (HR 0.94 before and 0.93 after adjustment), suggesting a limited extent to which SBP explains the association. 
+
+### Sex as a potential effect modifier
+
+```{r sex-modifier, include=FALSE}
+# Evaluating sex as a potential effect modifier 
+cox_cvd_interaction <- coxph(
+  Surv(TIMECVD, CVD) ~ ALC_DPW * SEX + AGE + CURSMOKE + DIABETES,
+  data = framingham_analysis
+)
+
+summary(cox_cvd_interaction)
+```
+
+```{r sex-subgroup, include=FALSE}
+# Fitting Cox models for subgroups (men and women) 
+cox_cvd_men <- coxph(
+  Surv(TIMECVD, CVD) ~ ALC_DPW + AGE + CURSMOKE + DIABETES,
+  data = subset(framingham_analysis, SEX == 1)
+)
+
+cox_cvd_women <- coxph(
+  Surv(TIMECVD, CVD) ~ ALC_DPW + AGE + CURSMOKE + DIABETES,
+  data = subset(framingham_analysis, SEX == 2)
+)
+
+summary(cox_cvd_men)
+summary(cox_cvd_women)
+```
+
+```{r HR-sex, include=FALSE}
+# Calculating adjusted hazard ratios per 7 additional drinks per week 
+get_hr <- function(model, sex) {
+  beta <- coef(model)["ALC_DPW"]
+  se <- sqrt(vcov(model)["ALC_DPW", "ALC_DPW"])
+
+  data.frame(
+    Sex = sex,
+    HR = exp(7 * beta),
+    Lower = exp(7 * (beta - 1.96 * se)),
+    Upper = exp(7 * (beta + 1.96 * se))
+  )
+}
+
+sex_results <- rbind(
+  get_hr(cox_cvd_men, "Men"),
+  get_hr(cox_cvd_women, "Women")
+)
+
+print(sex_results)
+```
+
+```{r sex-plot, echo=FALSE}
+# Creating a forest plot for alcohol intake and incident CVD by sex   
+ggplot(sex_results, aes(x = HR, y = Sex)) +
+  geom_errorbar(
+    aes(xmin = Lower, xmax = Upper),
+    orientation = "y",
+    width = 0.15,
+    color = "steelblue"
+  ) +
+  geom_point(size = 3, color = "steelblue") +
+  geom_vline(xintercept = 1, linetype = "dashed") +
+  labs(
+    title = "Figure 2. Alcohol Intake and Incident CVD by Sex",
+    x = "Adjusted hazard ratio (95% CI)",
+    y = NULL
+  ) +
+  theme_minimal()
+```
+
+We have selected sex as a potential modifier due to the available evidence that women reach higher blood alcohol concentrations than men at the same intake level (Piano et al., 2025). Therefore, we assessed whether sex modified the association between alcohol intake and cardiovascular disease risk. Figure 2 illustrates the results of subgroup analysis that indicate similar inverse estimates in men (HR = 0.94, 95% CI 0.90-0.99, p = 0.02) and women (HR = 0.91, 95% CI 0.82-1.01, p = 0.07). As the interaction between sex and alcohol was not statistically significant (p = 0.33), there is insufficient evidence that sex modifies this association.  
+
+---
+
+# Discussion 
+
+## Summary of findings 
+
+Our study identified a statistically significant inverse association between alcohol intake and incident CVD (HR = 0.94, 95% CI 0.90-0.98). We observed a similar association for MI/fatal CHD, but not stroke. Dose-response relationship analysis revealed a similar inverse association between alcohol intake and cardiovascular disease risk with no evidence of non-linearity. SBP was examined as a potential mediator based on prior evidence; however, the data indicate little evidence that SBP explains the association between alcohol intake and CVD risk. Finally, sex did not significantly modify the association. 
+
+## Interpretation within the broader cardiovascular research   
+
+These results are broadly consistent with prior research. Ronksley et al. (2011) have previously reported a similar inverse association between alcohol consumption and several cardiovascular outcomes. This has been subsequently supported by Wood et al. (2018), who found a similar inverse association with MI, but also identified a higher risk of stroke, which was not observed in this study. Despite these findings, we should be particularly cautious with respect to medical inference based on these data. Such results might be a product of confounding rather than plausible cardiovascular benefit of alcohol consumption.
+
+## Strengths and limitations of methods used   
+
+This study has several important strengths and limitations that should be considered when interpreting its findings. The large cohort with long follow-up allowed the association to be evaluated over time. Given the research aims, the use of Cox proportional hazards regression was justified to account for time to cardiovascular events and censoring. 
+
+Main limitations include simulated alcohol exposure, which limits the clinical applicability of the findings. Furthermore, residual confounding could not be excluded, and alcohol intake was measured only at baseline. Non-drinkers may include former drinkers who quit due to ill health, which could exaggerate the apparent cardiovascular benefit of drinking. The simulated exposure was not significantly associated with SBP, suggesting that SBP's limited explanatory role may reflect data simulation rather than underlying biology.
+
+## Implications for further research and healthcare 
+
+Further research could be conducted using non-simulated alcohol variables, as well as alternative inference methods such as Mendelian randomisation to better understand the association between alcohol intake and cardiovascular disease (Holmes et al., 2014). Considering the limitations of this study, the observed results should not be interpreted as evidence that alcohol consumption is beneficial for cardiovascular disease prevention.    
+
+---
+
+# Conclusion 
+
+This study found an inverse association between alcohol intake and cardiovascular diseases, especially MI/fatal CHD, but not stroke. Dose-response analysis revealed the same inverse association with no statistically significant evidence of non-linearity. Systolic blood pressure, selected as a potential mediator based on prior evidence, appeared to explain little of the observed association. Sex was evaluated as a potential effect modifier, but no statistically significant interaction was observed. Due to simulation of alcohol variables and potential confounding, no conclusive causal inference could be made. 
+
+---
+
+# References  
+
+Bradburn, M.J., Clark, T.G., Love, S.B. and Altman, D.G. (2003) ‘Survival analysis part II: multivariate data analysis – an introduction to concepts and methods’, *British Journal of Cancer*, 89(3), pp. 431–436. doi:10.1038/sj.bjc.6601119.
+
+Carr, S., Espinosa Dice, A.L., Gmel, G.E., Hassan, A.S., Shield, K.D. and Rehm, J. (2026) ‘A review of the relationship between dimensions of alcohol consumption and the burden of disease: 2026 update including Mendelian randomisation studies’, *Addiction*, 121(8), pp. 1998–2018. doi:10.1111/add.70435.
+
+Holmes, M.V. et al. (2014) ‘Association between alcohol and cardiovascular disease: Mendelian randomisation analysis based on individual participant data’, *BMJ*, 349, g4164. https://doi.org/10.1136/bmj.g4164.
+
+Piano, M.R., Marcus, G.M., Aycock, D.M., Buckman, J., Hwang, C.-L., Larsson, S.C., Mukamal, K.J. and Roerecke, M. (2025) ‘Alcohol use and cardiovascular disease: a scientific statement from the American Heart Association’, *Circulation*, 152(1), pp. e7–e21. doi:10.1161/CIR.0000000000001341.
+
+R Core Team (2025) *R: A language and environment for statistical computing*. Version 4.5.1. Vienna: R Foundation for Statistical Computing. Available at: https://www.R-project.org/ (Accessed: 11 November 2026).
+
+Ronksley, P.E., Brien, S.E., Turner, B.J., Mukamal, K.J. and Ghali, W.A. (2011) ‘Association of alcohol consumption with selected cardiovascular disease outcomes: a systematic review and meta-analysis’, *BMJ*, 342, d671. https://doi.org/10.1136/bmj.d671.
+
+van de Luitgaarden, I.A.T., van Oort, S., Bouman, E.J., Schoonmade, L.J., Schrieks, I.C., Grobbee, D.E., van der Schouw, Y.T., Larsson, S.C., Burgess, S., van Ballegooijen, A.J., Onland-Moret, N.C. and Beulens, J.W.J. (2022) ‘Alcohol consumption in relation to cardiovascular diseases and mortality: a systematic review of Mendelian randomization studies’, *European Journal of Epidemiology*, 37(7), pp. 655–669. doi:10.1007/s10654-021-00799-5.
+
+Wood, A.M. et al. (2018) ‘Risk thresholds for alcohol consumption: combined analysis of individual-participant data for 599,912 current drinkers in 83 prospective studies’, *The Lancet*, 391(10129), pp. 1513–1523. https://doi.org/10.1016/S0140-6736(18)30134-X.
+
+World Health Organization (2025) *Cardiovascular diseases (CVDs)*. Available at: https://www.who.int/news-room/fact-sheets/detail/cardiovascular-diseases-(cvds) (Accessed: 11 November 2026).
+
+
+## Hyperlinks
+
+[Healthcare DataScience GitHub Repository](https://github.com/NikitaFilimonow/Healthcare-DataScience)
